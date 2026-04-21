@@ -2,13 +2,13 @@ import torch
 from diffusion_model import SimpleUNetModel
 import matplotlib.pyplot as plt
 
-DIGIT = 7
+DIGIT = 0
 
 if __name__=="__main__":
     T = 1000
     beta_1 = 1e-4
     beta_T = 0.02
-    model_path = "./logs/SimpleUNetModel_T1000_b128_lr2e-05_mnist/checkpoint_epoch_28.pth"
+    model_path = "./logs/SimpleUNetModel_T1000_b128_lr0.0001_mnist/checkpoint_epoch_23.pth"
     DEV = "mps"
     model = SimpleUNetModel(
         sample_size=28, 
@@ -45,15 +45,20 @@ if __name__=="__main__":
             alpha_hat[t] = alpha[t]
         else:
             alpha_hat[t] = alpha_hat[t-1]*alpha[t]
+    # torch.set_printoptions(precision=10)
+
+    # print(beta)
+    # print(alpha)
+    # print(alpha_hat)
     
-    x_t = torch.normal(mean=torch.zeros(1, 1, 28, 28), std=torch.ones(1, 1, 28, 28)).to(DEV) # x at 1000
+    x_t = torch.randn(1, 1, 28, 28, device=DEV)
     class_label = torch.tensor(DIGIT, device=DEV)
     for t in range(T, 0, -1):
         print(f'\r {t}/{T} mean: {x_t.mean()}, min|max: {x_t.min()}|{x_t.max()}', end='      ')
         if t > 1:
-            z = torch.normal(mean=torch.zeros(1, 1, 28, 28), std=torch.ones(1, 1, 28, 28)).to(DEV)
+            z = torch.randn(1, 1, 28, 28, device=DEV)
         else:
-            z = torch.zeros((1, 1, 28, 28)).to(DEV)
+            z = torch.zeros((1, 1, 28, 28), device=DEV)
         
         pred_noise = model.forward(sample=x_t, timestep=t, class_labels=class_label).sample
         x_t_1 = 1/torch.sqrt(alpha[t])*(x_t - (1-alpha[t])/torch.sqrt(1-alpha_hat[t])*pred_noise) + torch.sqrt(beta[t])*z

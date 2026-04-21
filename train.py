@@ -21,8 +21,8 @@ def get_mnist(batch_size):
     dataset_train = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
     dataset_test = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
 
-    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=4, persistent_workers=True)
-    test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=True, num_workers=4, persistent_workers=True)
+    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=6, persistent_workers=True)
+    test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=True, num_workers=6, persistent_workers=True)
     
     return train_loader, test_loader
 
@@ -86,7 +86,7 @@ if __name__=='__main__':
     # warmup_scheduler = LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=10)
     # main_scheduler = ConstantLR(optimizer, factor=1.0, total_iters=100)
     # main_scheduler = CosineAnnealingLR(optimizer, T_max=100)
-    scheduler = MultiStepLR(optimizer, milestones=[25, 50, 75])
+    scheduler = MultiStepLR(optimizer, milestones=[30, 60, 75])
     # scheduler = SequentialLR(
     #     optimizer, 
     #     schedulers=[warmup_scheduler, main_scheduler], 
@@ -127,18 +127,20 @@ if __name__=='__main__':
         idx = 0
         train_samples = 0
         train_loss = 0.0
-        loss = 0.0
+        loss = torch.tensor(0.0)
         for img, label in train_loader:
-            print("\r" + str(idx) + "/" + str(len(train_loader)) + ' ' + str(img.shape) + " loss " + str(loss.item()), end='')
+            print("\r" + str(idx) + "/" + str(len(train_loader)) + ' ' + str(img.shape) + " loss " + str(loss), end='')
             idx+=1
+            optimizer.zero_grad(set_to_none=True)
+
             img = img.to(args.device)
             label = label.to(args.device)
             this_batch = img.shape[0]
             # print(img.shape, label.shape, end='')
             
             # generate t and epsilon for each image in barch
-            ts = torch.randint(1, high=T+1, size=(this_batch,)).to(args.device)
-            eps = torch.normal(mean=torch.zeros(this_batch, 1, 28, 28), std=torch.ones(this_batch, 1, 28, 28)).to(args.device)
+            ts = torch.randint(1, high=T+1, size=(this_batch,), device=dev)#.to(args.device)
+            eps = torch.randn(this_batch, 1, 28, 28, device=dev)
             # print(ts.shape, eps.shape, end='')
             
             # add noise
@@ -177,5 +179,5 @@ if __name__=='__main__':
         torch.save(checkpoint, os.path.join(out_dir, f'checkpoint_epoch_{epoch}.pth'))
 
         print(args)
-        print(f'epoch ={epoch}, train_loss ={train_loss: .4f}')
+        print(f'epoch ={epoch}, train_loss ={train_loss: .4f}, training_speed ={train_speed: .4f}')
         
