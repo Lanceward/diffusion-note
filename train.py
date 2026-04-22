@@ -129,7 +129,7 @@ if __name__=='__main__':
         train_loss = 0.0
         loss = torch.tensor(0.0)
         for img, label in train_loader:
-            print("\r" + str(idx) + "/" + str(len(train_loader)) + ' ' + str(img.shape) + " loss " + str(loss), end='')
+            print("\r" + str(idx) + "/" + str(len(train_loader)) + ' ' + str(img.shape) + " loss " + str(loss) + " lr " + str(optimizer.param_groups[0]['lr']), end='')
             idx+=1
             optimizer.zero_grad(set_to_none=True)
 
