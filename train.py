@@ -11,6 +11,7 @@ from torch.optim.lr_scheduler import LinearLR, ConstantLR, SequentialLR, CosineA
 from torch.utils.tensorboard import SummaryWriter
 from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB
 from datasets import get_mnist, get_cifar10
+from diffusion_scheduler import get_diffusion_scheduler_linear, get_diffusion_scheduler_cosine
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Diffusion Training')
@@ -22,6 +23,7 @@ if __name__=='__main__':
     parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
     parser.add_argument('-lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('-dataset', default='mnist', type=str, help='choice of datasets, default to mnist')
+    parser.add_argument('-diff-schedule', default='linear', type=str, help='how the forward process add noise, defaul to linear schedule')
 
     args = parser.parse_args()
     print(args)
@@ -38,33 +40,17 @@ if __name__=='__main__':
     # define the scheduler parameters
     # here for schedules, parameter_t is stored at index t
     T = 1000
-    beta_1 = 1e-4
-    beta_T = 0.02
-    
-    beta = torch.zeros(T+1)
-    alpha = torch.zeros(T+1)
-    alpha_hat = torch.zeros(T+1)
-    for t in range(1, T+1):
-        # parameters ranges from 1 to T
-        beta[t] = (beta_T-beta_1)/(T-1)*(t-1)+beta_1
-        alpha[t] = 1-beta[t]
-        if t == 1:
-            alpha_hat[t] = alpha[t]
-        else:
-            alpha_hat[t] = alpha_hat[t-1]*alpha[t]
+    if args.diff_schedule == 'linear':
+        beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4, beta_T=0.02)
+    elif args.diff_schedule == 'cosine':
+        beta, alpha, alpha_hat = get_diffusion_scheduler_cosine(T=T)
+    else:
+        raise ValueError(f"diffusion schedule {args.diff_schedule} not currently supported.")
     
     # Optimizer
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
     # Scheduler
-    # warmup_scheduler = LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=10)
-    # main_scheduler = ConstantLR(optimizer, factor=1.0, total_iters=100)
-    # main_scheduler = CosineAnnealingLR(optimizer, T_max=100)
     scheduler = MultiStepLR(optimizer, milestones=[50, 75])
-    # scheduler = SequentialLR(
-    #     optimizer, 
-    #     schedulers=[warmup_scheduler, main_scheduler], 
-    #     milestones=[10]
-    # )
 
     # preparation around training
     start_epoch=0
@@ -75,7 +61,7 @@ if __name__=='__main__':
         scheduler.load_state_dict(checkpoint['scheduler'])
         start_epoch = checkpoint['epoch'] + 1
     
-    out_dir = os.path.join(args.out_dir, f'{type(net).__name__}_T{T}_b{args.b}_lr{args.lr}')
+    out_dir = os.path.join(args.out_dir, f'{type(net).__name__}_T{T}_b{args.b}_lr{args.lr}_{args.diff_schedule}')
     out_dir += '_'+args.dataset
 
     if not os.path.exists(out_dir):
@@ -90,10 +76,14 @@ if __name__=='__main__':
         args_txt.write(str(args))
         args_txt.write('\n')
         args_txt.write(' '.join(sys.argv))
-        
-    #training starts
+
+    #some pre-compute        
     dev = torch.device(args.device)
-    alpha_hat = alpha_hat.to(args.device)
+    alpha_hat = alpha_hat.to(dev)
+    sqrt_alpha_hat = alpha_hat.sqrt().to(dev)
+    sqrt_one_minus_alpha_hat = (1.0 - alpha_hat).sqrt().to(dev)
+    
+    #training starts
     for epoch in range(start_epoch, args.epochs):
         start_time = time.time()
         loop_time = time.time()
@@ -108,22 +98,23 @@ if __name__=='__main__':
             loop_time = time.time()
             optimizer.zero_grad(set_to_none=True)
 
-            img = img.to(args.device)
-            label = label.to(args.device)
+            img = img.to(args.device, non_blocking=True)
+            label = label.to(args.device, non_blocking=True)
             this_batch = img.shape[0]
             # print(img.shape, label.shape, end='')
             
             # generate t and epsilon for each image in barch
-            ts = torch.randint(1, high=T+1, size=(this_batch,), device=dev)
-            eps = torch.randn_like(img, device=dev)
+            ts = torch.randint(1, T+1, size=(this_batch,), device=dev)
+            eps = torch.randn_like(img)
             # print(ts.shape, eps.shape, end='')
             
             # add noise
-            ahats = alpha_hat[ts]
-            img_noised = torch.sqrt(ahats).view(-1, 1, 1, 1) * img + torch.sqrt(1-ahats).view(-1, 1, 1, 1) * eps
+            c0 = sqrt_alpha_hat[ts].view(-1, 1, 1, 1)
+            c1 = sqrt_one_minus_alpha_hat[ts].view(-1, 1, 1, 1)
+            img_noised = c0 * img + c1 * eps
             
             #forward            
-            pred_noise = net.forward(sample=img_noised, timestep=ts, class_labels=label).sample
+            pred_noise = net(sample=img_noised, timestep=ts, class_labels=label).sample
             loss = F.mse_loss(pred_noise, eps)
             
             #backward
@@ -148,6 +139,8 @@ if __name__=='__main__':
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict(),
             'epoch': epoch,
+            'diffusion_scheduler': args.diff_schedule,
+            'dataset': args.dataset
         }
         
         torch.save(checkpoint, os.path.join(out_dir, f'checkpoint_epoch_{epoch}.pth'))

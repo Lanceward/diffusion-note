@@ -3,6 +3,7 @@ import torch
 
 from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB
 import matplotlib.pyplot as plt
+from diffusion_scheduler import get_diffusion_scheduler_linear
 
 # DIGIT = 6
 
@@ -11,6 +12,7 @@ if __name__=="__main__":
     parser.add_argument('-device', default='mps', help='device')
     parser.add_argument('-classidx', default=0, type=int, help='class index')    
     parser.add_argument('-dataset', default='mnist', type=str, help='choice of datasets, default to mnist')
+    parser.add_argument('-diff-schedule', default='linear', type=str, help='how the forward process add noise, defaul to linear schedule')
 
     args = parser.parse_args()
     print(args)
@@ -44,20 +46,28 @@ if __name__=="__main__":
     # define the scheduler parameters
     # here for schedules, parameter_t is stored at index t
     T = 1000
-    beta_1 = 1e-4
-    beta_T = 0.02
-    
-    beta = torch.zeros(T+1).to(DEV)
-    alpha = torch.zeros(T+1).to(DEV)
-    alpha_hat = torch.zeros(T+1).to(DEV)
-    for t in range(1, T+1):
-        # parameters ranges from 1 to T
-        beta[t] = (beta_T-beta_1)/(T-1)*(t-1)+beta_1
-        alpha[t] = 1-beta[t]
-        if t == 1:
-            alpha_hat[t] = alpha[t]
-        else:
-            alpha_hat[t] = alpha_hat[t-1]*alpha[t]
+    if args.diff_schedule == 'linear':
+        beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4, beta_T=0.02)
+    else:
+        raise ValueError(f"diffusion schedule {args.diff_schedule} not currently supported.")
+
+    beta = beta.to(DEV)
+    alpha = alpha.to(DEV)
+    alpha_hat = alpha_hat.to(DEV)
+
+    # beta_1 = 1e-4
+    # beta_T = 0.02
+    # beta = torch.zeros(T+1).to(DEV)
+    # alpha = torch.zeros(T+1).to(DEV)
+    # alpha_hat = torch.zeros(T+1).to(DEV)
+    # for t in range(1, T+1):
+    #     # parameters ranges from 1 to T
+    #     beta[t] = (beta_T-beta_1)/(T-1)*(t-1)+beta_1
+    #     alpha[t] = 1-beta[t]
+    #     if t == 1:
+    #         alpha_hat[t] = alpha[t]
+    #     else:
+    #         alpha_hat[t] = alpha_hat[t-1]*alpha[t]
     # torch.set_printoptions(precision=10)
 
     # print(beta)
