@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, ConstantLR, SequentialLR, CosineAnnealingLR, MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
-from diffusion_model import SimpleUNetModel
+from diffusion_model import SimpleUNet2DModelGrey
 # from diffusers import UNet2DModel
 
 def get_mnist(batch_size):
@@ -43,24 +43,7 @@ if __name__=='__main__':
     beta_1 = 1e-4
     beta_T = 0.02
     train_loader, test_loader = get_mnist(batch_size=args.b)    
-    net = SimpleUNetModel(
-        sample_size=28, 
-        in_channels=1, 
-        out_channels=1, 
-        dropout=0.1, 
-        num_class_embeds=10, 
-        down_block_types=(
-            "DownBlock2D",
-            "AttnDownBlock2D",
-            "AttnDownBlock2D",
-        ),
-        up_block_types=(
-            "AttnUpBlock2D",
-            "AttnUpBlock2D",
-            "UpBlock2D",
-        ),
-        block_out_channels=(32, 64, 64),
-    ).to(args.device)
+    net = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(args.device)
     
     # define the scheduler parameters
     # here for schedules, parameter_t is stored at index t

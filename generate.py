@@ -1,5 +1,5 @@
 import torch
-from diffusion_model import SimpleUNetModel
+from diffusion_model import SimpleUNet2DModelGrey
 import matplotlib.pyplot as plt
 
 DIGIT = 6
@@ -10,24 +10,7 @@ if __name__=="__main__":
     beta_T = 0.02
     model_path = "./logs/SimpleUNetModel_T1000_b128_lr0.0001_mnist/checkpoint_epoch_99.pth"
     DEV = "mps"
-    model = SimpleUNetModel(
-        sample_size=28, 
-        in_channels=1, 
-        out_channels=1, 
-        dropout=0.1, 
-        num_class_embeds=10, 
-        down_block_types=(
-            "DownBlock2D",
-            "AttnDownBlock2D",
-            "AttnDownBlock2D",
-        ),
-        up_block_types=(
-            "AttnUpBlock2D",
-            "AttnUpBlock2D",
-            "UpBlock2D",
-        ),
-        block_out_channels=(32, 64, 64),
-    ).to(DEV)
+    model = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(DEV)
     model.load_state_dict(torch.load(model_path, weights_only=False, map_location=DEV)['net'])
     model.eval()
     model.to(DEV)
