@@ -5,36 +5,23 @@ import time
 import argparse
 import numpy as np
 import torch
+
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, ConstantLR, SequentialLR, CosineAnnealingLR, MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms
 from diffusion_model import SimpleUNet2DModelGrey
-# from diffusers import UNet2DModel
-
-def get_mnist(batch_size):
-    transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,))
-            ])
-
-    dataset_train = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
-    dataset_test = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
-
-    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=6, persistent_workers=True)
-    test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=True, num_workers=6, persistent_workers=True)
-    
-    return train_loader, test_loader
+from datasets import get_mnist, get_cifar10
 
 if __name__=='__main__':
-    parser = argparse.ArgumentParser(description='Diffusion MNIST Training')
+    parser = argparse.ArgumentParser(description='Diffusion Training')
     parser.add_argument('-device', default='mps', help='device')
     parser.add_argument('-b', default=128, type=int, help='batch size')
     parser.add_argument('-epochs', default=100, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-out-dir', type=str, default='./logs', help='root dir for saving logs and checkpoint')
     parser.add_argument('-resume', type=str, help='resume from the checkpoint path')
-    parser.add_argument('-lr', default=2e-5, type=float, help='learning rate')
+    parser.add_argument('-lr', default=1e-4, type=float, help='learning rate')
+    parser.add_argument('-dataset', default='mnist', type=str, help='choice of datasets, default to mnist')
 
     args = parser.parse_args()
     print(args)
@@ -59,10 +46,6 @@ if __name__=='__main__':
         else:
             alpha_hat[t] = alpha_hat[t-1]*alpha[t]
     
-    # print(beta)
-    # print(alpha)
-    # print(alpha_hat)
-    # exit()
     # Optimizer
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
     # Scheduler
@@ -86,7 +69,7 @@ if __name__=='__main__':
         start_epoch = checkpoint['epoch'] + 1
     
     out_dir = os.path.join(args.out_dir, f'{type(net).__name__}_T{T}_b{args.b}_lr{args.lr}')
-    out_dir += '_mnist'
+    out_dir += '_'+args.dataset
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -106,14 +89,16 @@ if __name__=='__main__':
     alpha_hat = alpha_hat.to(args.device)
     for epoch in range(start_epoch, args.epochs):
         start_time = time.time()
+        loop_time = time.time()
         net.train()
         idx = 0
         train_samples = 0
         train_loss = 0.0
         loss = torch.tensor(0.0)
         for img, label in train_loader:
-            print("\r" + str(idx) + "/" + str(len(train_loader)) + ' ' + str(img.shape) + " loss " + str(loss) + " lr " + str(optimizer.param_groups[0]['lr']), end='')
+            print(f'\r{idx}/{len(train_loader)} b:{img.shape[0]} loss:{loss: .4f} batchtime:{time.time()-loop_time: .4f} lr:{(optimizer.param_groups[0]['lr'])}', end='')
             idx+=1
+            loop_time = time.time()
             optimizer.zero_grad(set_to_none=True)
 
             img = img.to(args.device)
@@ -132,7 +117,6 @@ if __name__=='__main__':
             
             #forward            
             pred_noise = net.forward(sample=img_noised, timestep=ts, class_labels=label).sample
-            # print(pred_noise.shape, end='')
             loss = F.mse_loss(pred_noise, eps)
             
             #backward
