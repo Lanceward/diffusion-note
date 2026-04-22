@@ -59,7 +59,7 @@ if __name__=='__main__':
     # warmup_scheduler = LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=10)
     # main_scheduler = ConstantLR(optimizer, factor=1.0, total_iters=100)
     # main_scheduler = CosineAnnealingLR(optimizer, T_max=100)
-    scheduler = MultiStepLR(optimizer, milestones=[30, 60, 75])
+    scheduler = MultiStepLR(optimizer, milestones=[50, 75])
     # scheduler = SequentialLR(
     #     optimizer, 
     #     schedulers=[warmup_scheduler, main_scheduler], 

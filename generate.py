@@ -26,7 +26,7 @@ if __name__=="__main__":
         else:
             raise ValueError(f"{INDEX} is out of range for classes in {args.dataset}")
     elif args.dataset == "cifar10":
-        model_path = "./logs/SimpleUNet2DModelRGB_T1000_b128_lr0.0001_cifar10/checkpoint_epoch_44.pth"
+        model_path = "./logs/SimpleUNet2DModelRGB_T1000_b128_lr0.0001_cifar10/checkpoint_epoch_50.pth"
         model = SimpleUNet2DModelRGB(dims=(32, 32), num_class=10).to(DEV)
         x_t = torch.randn(1, 3, 32, 32, device=DEV)
         class_label = torch.tensor(INDEX, device=DEV)
@@ -68,29 +68,31 @@ if __name__=="__main__":
     # fig, ax = plt.subplots()
     # img_data = x_t.detach().cpu().squeeze(0, 1).numpy()
     # im = ax.imshow(img_data)#, cmap='gray')
-    for t in range(T, 0, -1):
-        print(f'\r {t}/{T} mean: {x_t.mean()}, min|max: {x_t.min()}|{x_t.max()}', end='      ')
-        if t > 1:
-            z = torch.randn_like(x_t, device=DEV)
-        else:
-            z = torch.zeros_like(x_t, device=DEV)
-        
-        pred_noise = model.forward(sample=x_t, timestep=t, class_labels=class_label).sample
-        x_t_1 = 1/torch.sqrt(alpha[t])*(x_t - (1-alpha[t])/torch.sqrt(1-alpha_hat[t])*pred_noise) + torch.sqrt(beta[t])*z
-        x_t = x_t_1
-        
-        #plot progression
-        # new_data = x_t.detach().cpu().squeeze(0, 1).numpy()
-        # im.set_data(new_data)
-        # fig.canvas.draw()
-        # fig.canvas.flush_events()
-        # plt.pause(0.01)
-    print()
+    with torch.no_grad():
+        for t in range(T, 0, -1):
+            print(f'\r {t}/{T} mean: {x_t.mean()}, min|max: {x_t.min()}|{x_t.max()}', end='      ')
+            if t > 1:
+                z = torch.randn_like(x_t, device=DEV)
+            else:
+                z = torch.zeros_like(x_t, device=DEV)
+            
+            pred_noise = model.forward(sample=x_t, timestep=t, class_labels=class_label).sample
+            x_t_1 = 1/torch.sqrt(alpha[t])*(x_t - (1-alpha[t])/torch.sqrt(1-alpha_hat[t])*pred_noise) + torch.sqrt(beta[t])*z
+            x_t = x_t_1
+            
+            #plot progression
+            # new_data = x_t.detach().cpu().squeeze(0, 1).numpy()
+            # im.set_data(new_data)
+            # fig.canvas.draw()
+            # fig.canvas.flush_events()
+            # plt.pause(0.01)
+        print()
     
     # plt.ioff()
     # plt.show()
     # show the image
-    img_to_show = x_t.detach().cpu().squeeze(0).numpy()
+    img = (x_t+1.0)/2.0
+    img_to_show = img.detach().cpu().squeeze(0).numpy()
     if img_to_show.shape[0] == 1:
         plt.imshow(img_to_show.squeeze(0), cmap='gray')
     elif img_to_show.shape[0] == 3:
