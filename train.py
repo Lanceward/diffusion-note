@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, ConstantLR, SequentialLR, CosineAnnealingLR, MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
-from diffusion_model import SimpleUNet2DModelGrey
+from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB
 from datasets import get_mnist, get_cifar10
 
 if __name__=='__main__':
@@ -26,14 +26,21 @@ if __name__=='__main__':
     args = parser.parse_args()
     print(args)
     
+    #dataset and model
+    if args.dataset == "mnist":
+        train_loader, test_loader = get_mnist(batch_size=args.b)    
+        net = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(args.device)
+    elif args.dataset == "cifar10":
+        train_loader, test_loader = get_cifar10(batch_size=args.b)    
+        net = SimpleUNet2DModelRGB(dims=(32, 32), num_class=10).to(args.device)
+    else:
+        raise ValueError(f"{args.dataset} is currently not supported")
+    # define the scheduler parameters
+    # here for schedules, parameter_t is stored at index t
     T = 1000
     beta_1 = 1e-4
     beta_T = 0.02
-    train_loader, test_loader = get_mnist(batch_size=args.b)    
-    net = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(args.device)
     
-    # define the scheduler parameters
-    # here for schedules, parameter_t is stored at index t
     beta = torch.zeros(T+1)
     alpha = torch.zeros(T+1)
     alpha_hat = torch.zeros(T+1)
@@ -107,8 +114,8 @@ if __name__=='__main__':
             # print(img.shape, label.shape, end='')
             
             # generate t and epsilon for each image in barch
-            ts = torch.randint(1, high=T+1, size=(this_batch,), device=dev)#.to(args.device)
-            eps = torch.randn(this_batch, 1, 28, 28, device=dev)
+            ts = torch.randint(1, high=T+1, size=(this_batch,), device=dev)
+            eps = torch.randn_like(img, device=dev)
             # print(ts.shape, eps.shape, end='')
             
             # add noise

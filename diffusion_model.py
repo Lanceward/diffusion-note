@@ -20,3 +20,24 @@ class SimpleUNet2DModelGrey(UNet2DModel):
             ),
             block_out_channels=(32, 64, 64),
         )
+
+class SimpleUNet2DModelRGB(UNet2DModel):
+    def __init__(self, dims, num_class):
+        super().__init__(
+            sample_size=dims, 
+            in_channels=3, 
+            out_channels=3, 
+            dropout=0.1, 
+            num_class_embeds=num_class, 
+            down_block_types=(
+                "DownBlock2D",
+                "AttnDownBlock2D",
+                "AttnDownBlock2D",
+            ),
+            up_block_types=(
+                "AttnUpBlock2D",
+                "AttnUpBlock2D",
+                "UpBlock2D",
+            ),
+            block_out_channels=(96, 192, 192),
+        )
