@@ -6,10 +6,10 @@ Enjoy ;P
 
 --------------------
 
-branch available-model
+branch training/cifar10
 
 I will use readily available diffusion models on this branch, focus my study on the training side. 
 
 The model I use here is diffusers.UNet2DModel
 
-With b=128, epochs=100, lr=1e-4, it honestly works pretty well at only 26 epoche
+I will train more complex dataset with this branch
