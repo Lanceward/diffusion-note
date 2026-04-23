@@ -26,13 +26,15 @@ def get_diffusion_scheduler_cosine(T, s=0.008):
     for t in range(T+1):
         alpha_hat[t] = f(t)/f(0)
         if t > 0:
-            alpha[t] = f(t)/f(t-1)#alpha_hat[t]/alpha_hat[t-1]
+            # alpha[t] = f(t)/f(t-1)
+            alpha[t] = max(alpha_hat[t]/alpha_hat[t-1], 0.001)
             beta[t] = min(1-alpha[t], 0.999)
     
     return beta, alpha, alpha_hat
 
 if __name__=='__main__':
     beta, alpha, alpha_hat = get_diffusion_scheduler_cosine(T=1000)
+    # beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=1000, beta_1=1e-4, beta_T=0.02)
     
     
     print(beta)
@@ -40,6 +42,6 @@ if __name__=='__main__':
     print(alpha_hat)
 
     plt.plot(range(1001), beta)
-    plt.plot(range(1001), alpha)
+    # plt.plot(range(1001), alpha)
     plt.plot(range(1001), alpha_hat)
     plt.show()

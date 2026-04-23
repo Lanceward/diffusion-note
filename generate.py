@@ -3,7 +3,7 @@ import torch
 
 from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB
 import matplotlib.pyplot as plt
-from diffusion_scheduler import get_diffusion_scheduler_linear
+from diffusion_scheduler import get_diffusion_scheduler_linear, get_diffusion_scheduler_cosine
 
 # DIGIT = 6
 
@@ -28,7 +28,8 @@ if __name__=="__main__":
         else:
             raise ValueError(f"{INDEX} is out of range for classes in {args.dataset}")
     elif args.dataset == "cifar10":
-        model_path = "./logs/SimpleUNet2DModelRGB_T1000_b128_lr0.0001_cifar10/checkpoint_epoch_50.pth"
+        # model_path = "./logs/SimpleUNet2DModelRGB_T1000_b128_lr0.0001_cifar10/checkpoint_epoch_99.pth"
+        model_path = "./logs/SimpleUNet2DModelRGB_T1000_b128_lr0.0001_cosine_cifar10/checkpoint_epoch_99.pth"
         model = SimpleUNet2DModelRGB(dims=(32, 32), num_class=10).to(DEV)
         x_t = torch.randn(1, 3, 32, 32, device=DEV)
         class_label = torch.tensor(INDEX, device=DEV)
@@ -48,6 +49,8 @@ if __name__=="__main__":
     T = 1000
     if args.diff_schedule == 'linear':
         beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4, beta_T=0.02)
+    elif args.diff_schedule == 'cosine':
+        beta, alpha, alpha_hat = get_diffusion_scheduler_cosine(T=T)
     else:
         raise ValueError(f"diffusion schedule {args.diff_schedule} not currently supported.")
 
@@ -102,11 +105,12 @@ if __name__=="__main__":
     # plt.show()
     # show the image
     img = (x_t+1.0)/2.0
+    # img = (x_t - x_t.min())/(x_t.max()-x_t.min())
     img_to_show = img.detach().cpu().squeeze(0).numpy()
     if img_to_show.shape[0] == 1:
         plt.imshow(img_to_show.squeeze(0), cmap='gray')
     elif img_to_show.shape[0] == 3:
-        plt.imshow(img_to_show.transpose((1, 2, 0)), cmap='viridis')#, vmin=x_t.min(), vmax=x_t.max())
+        plt.imshow(img_to_show.transpose((1, 2, 0)), vmin=x_t.min(), vmax=x_t.max())
     else:
         raise ValueError(f"Current image shape {img_to_show.shape} not supported")
     plt.axis('off') # Optional: hides axes

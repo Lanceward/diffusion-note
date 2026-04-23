@@ -77,11 +77,11 @@ if __name__=='__main__':
         args_txt.write('\n')
         args_txt.write(' '.join(sys.argv))
 
-    #some pre-compute        
+    #some pre-processing        
     dev = torch.device(args.device)
     alpha_hat = alpha_hat.to(dev)
-    sqrt_alpha_hat = alpha_hat.sqrt().to(dev)
-    sqrt_one_minus_alpha_hat = (1.0 - alpha_hat).sqrt().to(dev)
+    sqrt_alpha_hat = alpha_hat.sqrt().view(-1, 1, 1, 1).to(dev)
+    sqrt_one_minus_alpha_hat = (1.0 - alpha_hat).sqrt().view(-1, 1, 1, 1).to(dev)
     
     #training starts
     for epoch in range(start_epoch, args.epochs):
@@ -109,8 +109,8 @@ if __name__=='__main__':
             # print(ts.shape, eps.shape, end='')
             
             # add noise
-            c0 = sqrt_alpha_hat[ts].view(-1, 1, 1, 1)
-            c1 = sqrt_one_minus_alpha_hat[ts].view(-1, 1, 1, 1)
+            c0 = sqrt_alpha_hat[ts]#.view(-1, 1, 1, 1)
+            c1 = sqrt_one_minus_alpha_hat[ts]#.view(-1, 1, 1, 1)
             img_noised = c0 * img + c1 * eps
             
             #forward            
