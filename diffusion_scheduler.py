@@ -22,13 +22,17 @@ def get_diffusion_scheduler_cosine(T, s=0.008):
         return math.cos((t/T+s)/(1+s) * math.pi/2)**2
     beta = torch.zeros(T+1)
     alpha = torch.ones(T+1)
+    alpha_hat_ = torch.ones(T+1)
     alpha_hat = torch.ones(T+1)
     for t in range(T+1):
-        alpha_hat[t] = f(t)/f(0)
+        alpha_hat_[t] = f(t)/f(0)
         if t > 0:
             # alpha[t] = f(t)/f(t-1)
-            alpha[t] = max(alpha_hat[t]/alpha_hat[t-1], 0.001)
+            alpha[t] = max(alpha_hat_[t]/alpha_hat_[t-1], 0.001)
             beta[t] = min(1-alpha[t], 0.999)
+    
+    for t in range(1, T+1):
+        alpha_hat[t] = alpha_hat[t-1] * alpha[t]
     
     return beta, alpha, alpha_hat
 

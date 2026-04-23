@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, ConstantLR, SequentialLR, CosineAnnealingLR, MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
-from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB
+from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB, OpenAIUNet2DModelRGB
 from datasets import get_mnist, get_cifar10
 from diffusion_scheduler import get_diffusion_scheduler_linear, get_diffusion_scheduler_cosine
 
@@ -24,6 +24,7 @@ if __name__=='__main__':
     parser.add_argument('-lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('-dataset', default='mnist', type=str, help='choice of datasets, default to mnist')
     parser.add_argument('-diff-schedule', default='linear', type=str, help='how the forward process add noise, defaul to linear schedule')
+    parser.add_argument('-T', default=1000, type=int, help='diffusion timestep')
 
     args = parser.parse_args()
     print(args)
@@ -34,12 +35,13 @@ if __name__=='__main__':
         net = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(args.device)
     elif args.dataset == "cifar10":
         train_loader, test_loader = get_cifar10(batch_size=args.b)    
-        net = SimpleUNet2DModelRGB(dims=(32, 32), num_class=10).to(args.device)
+        # net = SimpleUNet2DModelRGB(dims=(32, 32), num_class=10).to(args.device)
+        net = OpenAIUNet2DModelRGB(dims=(32, 32), num_class=10).to(args.device)
     else:
         raise ValueError(f"{args.dataset} is currently not supported")
     # define the scheduler parameters
     # here for schedules, parameter_t is stored at index t
-    T = 1000
+    T = args.T
     if args.diff_schedule == 'linear':
         beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4, beta_T=0.02)
     elif args.diff_schedule == 'cosine':
@@ -48,9 +50,9 @@ if __name__=='__main__':
         raise ValueError(f"diffusion schedule {args.diff_schedule} not currently supported.")
     
     # Optimizer
-    optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=0.0)
     # Scheduler
-    scheduler = MultiStepLR(optimizer, milestones=[50, 75])
+    scheduler = ConstantLR(optimizer, factor=1.0)#MultiStepLR(optimizer, milestones=[50, 75])
 
     # preparation around training
     start_epoch=0
@@ -140,7 +142,8 @@ if __name__=='__main__':
             'scheduler': scheduler.state_dict(),
             'epoch': epoch,
             'diffusion_scheduler': args.diff_schedule,
-            'dataset': args.dataset
+            'dataset': args.dataset,
+            'T': args.T
         }
         
         torch.save(checkpoint, os.path.join(out_dir, f'checkpoint_epoch_{epoch}.pth'))
