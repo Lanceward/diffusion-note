@@ -12,4 +12,4 @@ I will use readily available diffusion models on this branch, focus my study on 
 
 The model I use here is diffusers.UNet2DModel
 
-I will train more complex dataset with this branch
+Training with parameterized linear schedule, mnist, and cifar10 datasets are implemented here
