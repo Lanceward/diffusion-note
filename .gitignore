@@ -1,5 +1,6 @@
 .venv
 .DS_Store
+image.png
 data
 __pycache__
 logs

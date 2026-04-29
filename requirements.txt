@@ -1,2 +1,5 @@
+argparse
+diffusion_model
+matplotlib
 torch
 torchvision
