@@ -43,7 +43,7 @@ if __name__=='__main__':
     # here for schedules, parameter_t is stored at index t
     T = args.T
     if args.diff_schedule == 'linear':
-        beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4, beta_T=0.02)
+        beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4/(T/1000), beta_T=0.02/(T/1000))
     elif args.diff_schedule == 'cosine':
         beta, alpha, alpha_hat = get_diffusion_scheduler_cosine(T=T)
     else:
