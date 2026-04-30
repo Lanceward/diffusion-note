@@ -6,6 +6,18 @@ Enjoy ;P
 
 --------------------
 
+branch model/custom_mnist_model
+
+I will write my own parameterised models on this branch, focus my study on the model side. 
+
+The model I will imitate is the one from DDPM, it is a:
+
+U-Net with sinusoidal timestep embedding and no classes
+
+It will replace SimpleUNet2DModelGrey
+
+--------------------
+
 branch training/cifar10
 
 I will use readily available diffusion models on this branch, focus my study on the training side. 
