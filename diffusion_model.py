@@ -9,22 +9,20 @@ class SinusoidalEmbedding(nn.Module):
         self.embedding_dim = embedding_dim
         self.max_T = max_T
         # create a lookup table
-        self.embedding_table = torch.zeros((max_T+1, embedding_dim))
+        embedding_table = torch.zeros((max_T+1, embedding_dim))
         arr_i = torch.arange(embedding_dim//2)
         arr_1000_2i_d = torch.pow(10000, (2*arr_i / embedding_dim))
         for t in range(max_T+1):
-            # the even indicies
-            self.embedding_table[t, 0::2] = torch.sin(t/arr_1000_2i_d)
-            self.embedding_table[t, 1::2] = torch.cos(t/arr_1000_2i_d)
-        
-        # print(self.embedding_dim)
-        
+            embedding_table[t, 0::2] = torch.sin(t/arr_1000_2i_d)
+            embedding_table[t, 1::2] = torch.cos(t/arr_1000_2i_d)
+
+        self.register_buffer("embedding_table", embedding_table)
+
+
     def forward(self, timesteps):
         assert torch.is_tensor(timesteps) and torch.all(timesteps <= self.max_T)
         # input: batched timestep of dimension [B], each t <= max_T
         # output: sinusoidal embeddings of dimension [B, self.embedding_dim]
-        # B = timesteps.shape[0]
-        # output = torch.zeros((B, self.embedding_dim))
         return self.embedding_table[timesteps]
 
 class ResBlock(nn.Module):
@@ -116,6 +114,6 @@ if __name__=='__main__':
     import matplotlib.pyplot as plt
     test_se = SinusoidalEmbedding(512, 1000)
     print(test_se.embedding_table)
-    plt.imshow(test_se.embedding_table)
+    plt.imshow(test_se.embedding_table, 'viridis')
     plt.axis('off') # Optional: hides axes
     plt.savefig('image.png')
