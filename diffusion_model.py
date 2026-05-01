@@ -25,17 +25,57 @@ class SinusoidalEmbedding(nn.Module):
         # output: sinusoidal embeddings of dimension [B, self.embedding_dim]
         return self.embedding_table[timesteps]
 
-class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel):
-        assert out_channel % 32 == 0 and in_channel % 32 == 0
-        super(ResBlock, self).__init__()
-        self.group_norm1 = nn.GroupNorm(32, in_channel)
-        self.non_linear1 = nn.SiLU()
+class ResBlock_TSEmb(nn.Module):
+    def __init__(self, in_channel, out_channel, groups = 32, dropout_rate=0.1):
+        assert out_channel % groups == 0 and in_channel % groups == 0
+        super(ResBlock_TSEmb, self).__init__()
+        self.gn1 = nn.GroupNorm(groups, in_channel)
+        self.nl1 = nn.SiLU()
         self.conv1 = nn.Conv2d(in_channel, out_channel, 
                               kernel_size=3,
                               padding=1, 
                               bias=False)
+
+        self.shortcut = nn.Sequential()
+
+        self.gn2 = nn.GroupNorm(groups, in_channel)
+        self.nl2 = nn.SiLU()
+        self.drop = nn.Dropout2d(dropout_rate)
+        self.conv2 = nn.Conv2d(out_channel, out_channel, 
+                              kernel_size=3,
+                              padding=1, 
+                              bias=False)
+
+    def forward(self, x, timestep_emb):
+        out = self.conv1(self.nl1(self.gn1(x)))
+        out += timestep_emb
+        out = self.conv2(self.drop(self.nl2(self.gn2(x))))
+        out += self.shortcut(x)
+        return out
         
+class DownBlock(nn.Module):
+    def __init__(self, in_channel, out_channel):
+        super(DownBlock, self).__init__()
+        self.conv2d = nn.Conv2d(in_channel, out_channel, 
+                                kernel_size=3, 
+                                padding=1, 
+                                stride=2, 
+                                bias=False)
+
+    def forward(self, x):
+        return self.conv2d(x)
+
+class UpBlock(nn.Module):
+    def __init__(self, in_channel, out_channel):
+        super(DownBlock, self).__init__()
+        self.upsamp = nn.Upsample(scale_factor=2, mode="nearest")
+        self.conv2d = nn.Conv2d(in_channel, out_channel, 
+                                kernel_size=3, 
+                                padding=1, 
+                                bias=False)
+
+    def forward(self, x):
+        return self.conv2d(self.upsamp(x))
 
 class CustomUNet2DModelGrey(nn.Module):
     def __init__(self, dims):
