@@ -19,14 +19,37 @@ class SinusoidalEmbedding(nn.Module):
         self.register_buffer("embedding_table", embedding_table)
 
 
-    def forward(self, timesteps):
-        assert torch.is_tensor(timesteps) and torch.all(timesteps <= self.max_T)
+    def forward(self, timesteps: torch.Tensor):
+        assert torch.all(timesteps <= self.max_T)
         # input: batched timestep of dimension [B], each t <= max_T
         # output: sinusoidal embeddings of dimension [B, self.embedding_dim]
         return self.embedding_table[timesteps]
 
+class SelfAttention(nn.Module):
+    def __init__(self, channels):
+        super(SelfAttention, self).__init__()
+        self.channels = channels
+        self.mha = nn.MultiheadAttention(channels, 4, batch_first=True)
+        self.ln = nn.LayerNorm([channels])
+        self.ff_self = nn.Sequential(
+            nn.LayerNorm([channels]),
+            nn.Linear(channels, channels),
+            nn.GELU(),
+            nn.Linear(channels, channels),
+        )
+
+    def forward(self, x):
+        _, _, H, W = x.shape
+        x = x.view(-1, self.channels, H*W).swapaxes(1, 2)
+        x_ln = self.ln(x)
+        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
+        attention_value = attention_value + x
+        attention_value = self.ff_self(attention_value) + attention_value
+        return attention_value.swapaxes(2, 1).view(-1, self.channels, H, W)
+
+
 class ResBlock_TSEmb(nn.Module):
-    def __init__(self, in_channel, out_channel, groups = 32, dropout_rate=0.1):
+    def __init__(self, in_channel, out_channel, groups = 32, dropout_rate=0.1, max_T=1000):
         assert out_channel % groups == 0 and in_channel % groups == 0
         super(ResBlock_TSEmb, self).__init__()
         self.gn1 = nn.GroupNorm(groups, in_channel)
@@ -36,7 +59,7 @@ class ResBlock_TSEmb(nn.Module):
                               padding=1, 
                               bias=False)
 
-        self.shortcut = nn.Sequential()
+        self.ts_emb = SinusoidalEmbedding(out_channel, max_T)
 
         self.gn2 = nn.GroupNorm(groups, in_channel)
         self.nl2 = nn.SiLU()
@@ -46,9 +69,38 @@ class ResBlock_TSEmb(nn.Module):
                               padding=1, 
                               bias=False)
 
-    def forward(self, x, timestep_emb):
+        self.shortcut = nn.Sequential()
+
+    def forward(self, x: torch.Tensor, timesteps: torch.Tensor):
         out = self.conv1(self.nl1(self.gn1(x)))
-        out += timestep_emb
+        # print(out.shape, self.ts_emb(timesteps)[:, :, None, None].shape)
+        out += self.ts_emb(timesteps)[:, :, None, None]
+        out = self.conv2(self.drop(self.nl2(self.gn2(x))))
+        out += self.shortcut(x)
+        return out
+
+class SwapAxis(nn.Module):
+    def __init__(self, axis1, axis2):
+        super(SwapAxis, self).__init__()
+        self.axis1 = axis1
+        self.axis2 = axis2
+        
+    def forward(self, x: torch.Tensor):
+        return x.transpose(self.axis1, self.axis2)
+
+class ResAttentionBlock_TSEmb(ResBlock_TSEmb):
+    def __init__(self, in_channel, out_channel, groups = 32, dropout_rate=0.1, max_T=1000, head_count=4):
+        super(ResAttentionBlock_TSEmb, self).__init__(in_channel, out_channel, groups, dropout_rate, max_T)
+        self.atten = SelfAttention(out_channel)#nn.MultiheadAttention(out_channel, head_count, dropout_rate, batch_first=True)
+        
+    def forward(self, x: torch.Tensor, timesteps: torch.Tensor):
+        # first convolution block
+        out = self.conv1(self.nl1(self.gn1(x))) 
+        out += self.ts_emb(timesteps)[:, :, None, None]
+        # Attention        
+        out_att = self.atten(out)
+        out += out_att
+        # Second convblock
         out = self.conv2(self.drop(self.nl2(self.gn2(x))))
         out += self.shortcut(x)
         return out
@@ -67,7 +119,7 @@ class DownBlock(nn.Module):
 
 class UpBlock(nn.Module):
     def __init__(self, in_channel, out_channel):
-        super(DownBlock, self).__init__()
+        super(UpBlock, self).__init__()
         self.upsamp = nn.Upsample(scale_factor=2, mode="nearest")
         self.conv2d = nn.Conv2d(in_channel, out_channel, 
                                 kernel_size=3, 
@@ -77,13 +129,104 @@ class UpBlock(nn.Module):
     def forward(self, x):
         return self.conv2d(self.upsamp(x))
 
-class CustomUNet2DModelGrey(nn.Module):
-    def __init__(self, dims):
-        super(CustomUNet2DModelGrey, self).__init__()
+class CustomBasicUNet2DModelGrey(nn.Module):
+    def __init__(self, dims, max_T=1000):
+        super(CustomBasicUNet2DModelGrey, self).__init__()
         assert dims % 4 == 0
+        self.conv_in = nn.Conv2d(1, 32, 
+                                kernel_size=3, 
+                                padding=1, 
+                                bias=False)
         
-    def DownBlocks2D():
-        pass
+        self.down1 = [ # 28x28 -> 14x14
+            ResBlock_TSEmb(32, 32, max_T=max_T),
+            ResBlock_TSEmb(32, 32, max_T=max_T),
+            DownBlock(32, 32)
+        ]
+        self.down2 = [ # 14x14 -> 7x7
+            ResAttentionBlock_TSEmb(32, 64, max_T=max_T),
+            ResAttentionBlock_TSEmb(64, 64, max_T=max_T),
+            DownBlock(64, 64)
+        ]
+        self.down3 = [ # 7x7 -> 7x7
+            ResBlock_TSEmb(64, 64, max_T=max_T),
+            ResBlock_TSEmb(64, 64, max_T=max_T)
+        ]
+        
+        self.mid = nn.Sequential( # 7x7 -> 7x7
+            ResAttentionBlock_TSEmb(64, 64, max_T=max_T),
+            ResAttentionBlock_TSEmb(64, 64, max_T=max_T)
+        )
+        
+        self.up1 = [ # 7x7 -> 14x14
+            ResBlock_TSEmb(128, 64, max_T=max_T),
+            ResBlock_TSEmb(128, 64, max_T=max_T),
+            ResBlock_TSEmb(128, 64, max_T=max_T),
+            UpBlock(64, 64)            
+        ]
+        self.up2 = [ # 14x14 -> 28x28
+            ResAttentionBlock_TSEmb(128, 64, max_T=max_T),
+            ResAttentionBlock_TSEmb(128, 64, max_T=max_T),
+            ResAttentionBlock_TSEmb(128, 32, max_T=max_T),
+            UpBlock(32, 32)            
+        ]
+        self.up3 = [ # 28x28 -> 28x28
+            ResBlock_TSEmb(64, 32, max_T=max_T),
+            ResBlock_TSEmb(64, 32, max_T=max_T),
+            ResBlock_TSEmb(64, 32, max_T=max_T),
+        ]
+        
+        self.conv_out = nn.Conv2d(32, 1, 
+                                kernel_size=3, 
+                                padding=1, 
+                                bias=False)
+    
+    @staticmethod
+    def _block_down_forward(block: list, x: torch.Tensor, timesteps: torch.Tensor):
+        outs = []
+        out = x
+        for b in block:
+            if isinstance(b, ResBlock_TSEmb):
+                out = b(out, timesteps)
+            else:
+                out = b(out)
+            outs.append(out)
+        return out, outs
+    
+    @staticmethod        
+    def _block_up_forward(block: list, skips: list, x: torch.Tensor, timesteps: torch.Tensor):
+        # (B, C, H, W)
+        out = x
+        for b in block:
+            if isinstance(b, ResBlock_TSEmb):
+                # pop a skip conenction out
+                skip = skips.pop()
+                out = torch.cat((out, skip), 1)
+                out = b(out, timesteps)
+            else:
+                out = b(out)
+        return out
+    
+    def forward(self, x, t):
+        out = self.conv_in(x)
+        skip_conns = [out]
+        
+        out, skip = self._block_down_forward(self.down1, out, t)
+        skip_conns += skip
+        out, skip = self._block_down_forward(self.down2, out, t)
+        skip_conns += skip
+        out, skip = self._block_down_forward(self.down3, out, t)
+        skip_conns += skip
+        
+        out = self.mid(out, t)
+        
+        out = self._block_up_forward(self.up1, skip_conns, out, t)
+        out = self._block_up_forward(self.up2, skip_conns, out, t)
+        out = self._block_up_forward(self.up3, skip_conns, out, t)
+        
+        out = self.conv_out(out)
+        
+        return out
 
 class SimpleUNet2DModelGrey(UNet2DModel):
     def __init__(self, dims, num_class):
@@ -151,9 +294,18 @@ class OpenAIUNet2DModelRGB(UNet2DModel):
         )
 
 if __name__=='__main__':
-    import matplotlib.pyplot as plt
-    test_se = SinusoidalEmbedding(512, 1000)
-    print(test_se.embedding_table)
-    plt.imshow(test_se.embedding_table, 'viridis')
-    plt.axis('off') # Optional: hides axes
-    plt.savefig('image.png')
+    # import matplotlib.pyplot as plt
+    # test_se = SinusoidalEmbedding(512, 1000)
+    # print(test_se.embedding_table)
+    # plt.imshow(test_se.embedding_table, 'viridis')
+    # plt.axis('off') # Optional: hides axes
+    # plt.savefig('image.png')
+
+    mnistModel = CustomBasicUNet2DModelGrey(28)
+    batch = 8
+    input_image = torch.randn(batch, 1, 28, 28)
+    input_ts = torch.randint(1, 1000, (batch,))
+    
+    output = mnistModel(input_image, input_ts)
+    
+    print(output.shape)
