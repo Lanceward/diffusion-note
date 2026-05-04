@@ -9,7 +9,8 @@ import torch
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LinearLR, ConstantLR, SequentialLR, CosineAnnealingLR, MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
-from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB, OpenAIUNet2DModelRGB
+import diffusers
+from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB, OpenAIUNet2DModelRGB, CustomBasicUNet2DModelGrey
 from datasets import get_mnist, get_cifar10
 from diffusion_scheduler import get_diffusion_scheduler_linear, get_diffusion_scheduler_cosine
 
@@ -32,7 +33,8 @@ if __name__=='__main__':
     #dataset and model
     if args.dataset == "mnist":
         train_loader, test_loader = get_mnist(batch_size=args.b)    
-        net = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(args.device)
+        # net = SimpleUNet2DModelRGB(dims=(28, 28), num_class=10).to(args.device)
+        net = CustomBasicUNet2DModelGrey(dims=28).to(args.device)
     elif args.dataset == "cifar10":
         train_loader, test_loader = get_cifar10(batch_size=args.b)    
         # net = SimpleUNet2DModelRGB(dims=(32, 32), num_class=10).to(args.device)
@@ -115,8 +117,11 @@ if __name__=='__main__':
             c1 = sqrt_one_minus_alpha_hat[ts]#.view(-1, 1, 1, 1)
             img_noised = c0 * img + c1 * eps
             
-            #forward            
-            pred_noise = net(sample=img_noised, timestep=ts, class_labels=label).sample
+            #forward
+            if isinstance(net, diffusers.UNet2DModel):
+                pred_noise = net(sample=img_noised, timestep=ts, class_labels=label).sample
+            else:
+                pred_noise = net(x=img_noised, t=ts)
             loss = F.mse_loss(pred_noise, eps)
             
             #backward

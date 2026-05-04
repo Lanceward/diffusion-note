@@ -61,7 +61,7 @@ class ResBlock_TSEmb(nn.Module):
 
         self.ts_emb = SinusoidalEmbedding(out_channel, max_T)
 
-        self.gn2 = nn.GroupNorm(groups, in_channel)
+        self.gn2 = nn.GroupNorm(groups, out_channel)
         self.nl2 = nn.SiLU()
         self.drop = nn.Dropout2d(dropout_rate)
         self.conv2 = nn.Conv2d(out_channel, out_channel, 
@@ -69,14 +69,17 @@ class ResBlock_TSEmb(nn.Module):
                               padding=1, 
                               bias=False)
 
-        self.shortcut = nn.Sequential()
+        self.shortcut = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, kernel_size=1, stride=1, bias=False),
+            nn.GroupNorm(groups, out_channel)
+        )
 
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor):
         out = self.conv1(self.nl1(self.gn1(x)))
         # print(out.shape, self.ts_emb(timesteps)[:, :, None, None].shape)
-        out += self.ts_emb(timesteps)[:, :, None, None]
-        out = self.conv2(self.drop(self.nl2(self.gn2(x))))
-        out += self.shortcut(x)
+        out = out + self.ts_emb(timesteps)[:, :, None, None]
+        out = self.conv2(self.drop(self.nl2(self.gn2(out))))
+        out = out + self.shortcut(x)
         return out
 
 class SwapAxis(nn.Module):
@@ -96,13 +99,13 @@ class ResAttentionBlock_TSEmb(ResBlock_TSEmb):
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor):
         # first convolution block
         out = self.conv1(self.nl1(self.gn1(x))) 
-        out += self.ts_emb(timesteps)[:, :, None, None]
+        out = out + self.ts_emb(timesteps)[:, :, None, None]
         # Attention        
         out_att = self.atten(out)
-        out += out_att
+        out = out + out_att
         # Second convblock
-        out = self.conv2(self.drop(self.nl2(self.gn2(x))))
-        out += self.shortcut(x)
+        out = self.conv2(self.drop(self.nl2(self.gn2(out))))
+        out = out + self.shortcut(x)
         return out
         
 class DownBlock(nn.Module):
@@ -138,43 +141,43 @@ class CustomBasicUNet2DModelGrey(nn.Module):
                                 padding=1, 
                                 bias=False)
         
-        self.down1 = [ # 28x28 -> 14x14
+        self.down1 = nn.ModuleList([ # 28x28 -> 14x14
             ResBlock_TSEmb(32, 32, max_T=max_T),
             ResBlock_TSEmb(32, 32, max_T=max_T),
             DownBlock(32, 32)
-        ]
-        self.down2 = [ # 14x14 -> 7x7
+        ])
+        self.down2 = nn.ModuleList([ # 14x14 -> 7x7
             ResAttentionBlock_TSEmb(32, 64, max_T=max_T),
             ResAttentionBlock_TSEmb(64, 64, max_T=max_T),
             DownBlock(64, 64)
-        ]
-        self.down3 = [ # 7x7 -> 7x7
+        ])
+        self.down3 = nn.ModuleList([ # 7x7 -> 7x7
             ResBlock_TSEmb(64, 64, max_T=max_T),
             ResBlock_TSEmb(64, 64, max_T=max_T)
-        ]
+        ])
         
-        self.mid = nn.Sequential( # 7x7 -> 7x7
+        self.mid = nn.ModuleList([ # 7x7 -> 7x7
             ResAttentionBlock_TSEmb(64, 64, max_T=max_T),
             ResAttentionBlock_TSEmb(64, 64, max_T=max_T)
-        )
+        ])
         
-        self.up1 = [ # 7x7 -> 14x14
+        self.up1 = nn.ModuleList([ # 7x7 -> 14x14
             ResBlock_TSEmb(128, 64, max_T=max_T),
             ResBlock_TSEmb(128, 64, max_T=max_T),
             ResBlock_TSEmb(128, 64, max_T=max_T),
             UpBlock(64, 64)            
-        ]
-        self.up2 = [ # 14x14 -> 28x28
+        ])
+        self.up2 = nn.ModuleList([ # 14x14 -> 28x28
             ResAttentionBlock_TSEmb(128, 64, max_T=max_T),
             ResAttentionBlock_TSEmb(128, 64, max_T=max_T),
-            ResAttentionBlock_TSEmb(128, 32, max_T=max_T),
+            ResAttentionBlock_TSEmb(96, 32, max_T=max_T),
             UpBlock(32, 32)            
-        ]
-        self.up3 = [ # 28x28 -> 28x28
+        ])
+        self.up3 = nn.ModuleList([ # 28x28 -> 28x28
             ResBlock_TSEmb(64, 32, max_T=max_T),
             ResBlock_TSEmb(64, 32, max_T=max_T),
             ResBlock_TSEmb(64, 32, max_T=max_T),
-        ]
+        ])
         
         self.conv_out = nn.Conv2d(32, 1, 
                                 kernel_size=3, 
@@ -186,6 +189,7 @@ class CustomBasicUNet2DModelGrey(nn.Module):
         outs = []
         out = x
         for b in block:
+            # print(b)
             if isinstance(b, ResBlock_TSEmb):
                 out = b(out, timesteps)
             else:
@@ -197,11 +201,12 @@ class CustomBasicUNet2DModelGrey(nn.Module):
     def _block_up_forward(block: list, skips: list, x: torch.Tensor, timesteps: torch.Tensor):
         # (B, C, H, W)
         out = x
-        for b in block:
+        for i, b in enumerate(block):
             if isinstance(b, ResBlock_TSEmb):
                 # pop a skip conenction out
                 skip = skips.pop()
                 out = torch.cat((out, skip), 1)
+                # print(f'{i}th shape {out.shape}')
                 out = b(out, timesteps)
             else:
                 out = b(out)
@@ -218,7 +223,10 @@ class CustomBasicUNet2DModelGrey(nn.Module):
         out, skip = self._block_down_forward(self.down3, out, t)
         skip_conns += skip
         
-        out = self.mid(out, t)
+        out, _ = self._block_down_forward(self.mid, out, t)
+        
+        # for s in skip_conns:
+        #     print(s.shape)
         
         out = self._block_up_forward(self.up1, skip_conns, out, t)
         out = self._block_up_forward(self.up2, skip_conns, out, t)
