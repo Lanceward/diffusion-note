@@ -1,11 +1,11 @@
 import argparse
 import torch
 
-from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB, OpenAIUNet2DModelRGB
+from diffusion_model import SimpleUNet2DModelGrey, SimpleUNet2DModelRGB, OpenAIUNet2DModelRGB, CustomBasicUNet2DModelGrey
 import matplotlib.pyplot as plt
 from diffusion_scheduler import get_diffusion_scheduler_linear, get_diffusion_scheduler_cosine
 
-LIVE = False
+LIVE = True
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Diffusion Training')
@@ -21,8 +21,10 @@ if __name__=="__main__":
     INDEX = args.classidx
     if args.dataset == "mnist":
         # model_path = "./logs/SimpleUNetModel_T1000_b128_lr0.0001_mnist/checkpoint_epoch_99.pth"
-        model_path = "./logs/SimpleUNet2DModelGrey_T4000_b128_lr0.0001_cosine_mnist/checkpoint_epoch_75.pth"
-        model = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(DEV)
+        # model_path = "./logs/SimpleUNet2DModelGrey_T4000_b128_lr0.0001_cosine_mnist/checkpoint_epoch_75.pth"
+        # model = SimpleUNet2DModelGrey(dims=(28, 28), num_class=10).to(DEV)
+        model_path = "./logs/CustomBasicUNet2DModelGrey_T1000_b128_lr0.0001_linear_mnist/checkpoint_epoch_32.pth"
+        model = CustomBasicUNet2DModelGrey(dims=28).to(DEV)
         x_t = torch.randn(1, 1, 28, 28, device=DEV)
         if INDEX >= 0 and INDEX < 10:
             class_label = torch.tensor(INDEX, device=DEV)
@@ -47,7 +49,7 @@ if __name__=="__main__":
     
     # define the scheduler parameters
     # here for schedules, parameter_t is stored at index t
-    T = 4000
+    T = 1000
     if args.diff_schedule == 'linear':
         beta, alpha, alpha_hat = get_diffusion_scheduler_linear(T=T, beta_1=1e-4/(T/1000), beta_T=0.02/(T/1000))
     elif args.diff_schedule == 'cosine':
@@ -76,9 +78,9 @@ if __name__=="__main__":
             else:
                 z = torch.zeros_like(x_t, device=DEV)
             
-            pred_noise = model.forward(sample=x_t, timestep=t, class_labels=class_label).sample
+            # pred_noise = model.forward(sample=x_t, timestep=t, class_labels=class_label).sample
+            pred_noise = model.forward(x_t, torch.tensor([t]))
             x_t = 1/torch.sqrt(alpha[t])*(x_t - (1-alpha[t])/torch.sqrt(1-alpha_hat[t])*pred_noise) + torch.sqrt(beta[t])*z
-            # x_t = x_t_1
             
             if LIVE:
                 # plot progression
